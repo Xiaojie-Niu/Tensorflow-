@@ -1,2 +1,163 @@
 # Tensorflow-
 Tensorflow Serving Deployment Process
+
+## 1 Basic Information
+
+Environment: Ubuntu 16.04.3 LTS
+
+Python version: Python 3.5.2
+
+Note: The version that comes with the system is Python 2.7, we are using Python 3.5.2, you should add Python3 and pip3 install when executing commands on the command line
+
+## 2 Installing the Python package Grpc
+
+### 2.1 Getting the installed dependencies
+
+It may be necessary to do the following.
+
+```
+sudo apt-get update && sudo apt-get install -y \ 
+build-essential \ 
+curl \ 
+libcurl3-dev \ 
+git \ 
+libfreetype6-dev \ 
+libpng12-dev \ 
+libzmq3-dev \ 
+pkg-config \ 
+python-dev \ 
+python-numpy \ 
+python-pip \ 
+software-properties-common \ 
+swig \ 
+zip \ 
+zlib1g-dev
+```
+Make sure Gcc Lib is the latest version
+> sudo apt-get install libstdc++6
+
+The following content may also be required From [here, may require a vpn if you are in China](https://medium.com/@noone7791/how-to-install-tensorflow-serving-load-a-saved-tf-model-and-connect-it-to-a-rest-api-in-ubuntu-48e2a27b8c2a)
+
+```
+sudo add-apt-repository ppa：ubuntu-toolchain -r / test 
+sudo apt-get update 
+sudo apt-get upgrade 
+sudo apt-get dist-upgrade
+```
+### 2.2 Installing Grpc
+
+TensorFlow Serving provides the gRPC interface for calling predictions from models. gRPC is an open source, high-performance Remote Procedure Call (RPC) framework. Although I don't really understand what this is, install it and be done with it~
+> sudo pip install grpcio --ignore-installed six
+
+## 3 Clone tf_serving repository
+
+Download the files you need from GitHub, you can download the path to ...... but start the server in the serving folder
+> git clone --recurse-submodules https://github.com/tensorflow/serving cd serving$
+
+## 4 Bazel Installation
+
+Bazel is a reproducible code builder for Google. It is mainly used to build Google's software, dealing with build problems that occur in Google's development environment, such as: large-scale data build problems, shared code base problems, problems related to software built from source code. Still do not understand, installed on the end (according to the official website installation will be no problem) [official website Bazel installation link](https://docs.bazel.build/versions/master/install.html)
+
+### 4.1 Installing JDK-8
+
+When installing bazel, install JDK8 first
+> sudo apt-get install openjdk-8-jdk
+
+### 4.2 Adding Bazel's distributed URL to the path
+```
+echo "deb [arch=amd64] http://storage.googleapis.com/bazel-apt stable jdk1.8" | sudo tee /etc/apt/sources.list.d/bazel.list
+curl https://bazel.build/bazel-release.pub.gpg | sudo apt-key add -
+```
+
+### 4.3 Installing Bazel
+This completes the installation of Bazel~
+> sudo apt-get update && sudo apt-get install bazel
+
+## 5 Creating Tensorflow_serving with Bazel
+
+(The first installation takes a long time, about 15min)
+> bazel build tensorflow_serving/...
+
+## 6 Test installation
+
+A list of tests is generated here, detailing those that did not Pass, and I did not pass all of them, the list is as follows: (but did not prevent the use of the later, and may have an impact at some point in the future.)
+> bazel test tensorflow_serving/...
+<img width="686" alt="image" src="https://user-images.githubusercontent.com/114042177/191454490-a93b107e-f635-4580-a06b-072e793f1e30.png">
+
+## 7 Training the model to generate pb files
+
+Regarding the saving of the training generated model, we use the function `signature_def_map` here. Two methods exist for [saving/loading the Tensoflow model](https://blog.csdn.net/thriving_fcl/article/details/75213361) (please click on the link for the original source), which are
+
+- **Save/load variables using Saver only.** This method obviously does not work, saving variables only would require redefining Graph (defining the model) at the time of inference, so that the code of different models would definitely have to be modified. Even if the same model has changed parameters, it needs to be reflected in the code, or at least a configuration file to synchronize it, which would be tedious.
+
+- **Use tf.train.import_meta_graph to import graph information and create Saver, and then use Saver restore variables.** Compared to the first one, there is no need to redefine the model, but in order to find the input and output tensors from the graph, you still have to use graph.get_tensor_by_name() to get them, i.e. you still need to know the names given to these tensors during the model definition phase. ` Here we use the second method.
+
+In this part, we should pay attention to the definition of labels when defining the signature. User-defined ones should match the tags of the model and the client code; system-defined ones should pay attention to the correct format, such as tf.saved_model.tag_constants.
+
+**Example: tag_constants.SERVING**
+> builder.add_meta_graph_and_variables(sess, [tf.saved_model.tag_constants.SERVING], {'test_signature':signature})
+
+The path generated by the final model should contain a pb file `saved_model.pb` and a folder `variables` (the folder can be empty)
+
+`
+If an error is reported in the process of calling the model that "no model is available", then create a folder 1 under the model path, which becomes path/1/pb+variables , because the version of the model is required to call serving, and 1 represents the version number, the corresponding call path is also changed to path/1 as shown below
+`
+<img width="512" alt="image" src="https://user-images.githubusercontent.com/114042177/191454863-79b03fcd-33cd-46ed-bb98-d7ebc5d7b463.png">
+
+
+## 8 Start the client
+
+Open the command line and enter the following command to enable the service, where `port` is the port number, `model_name` is the user-defined model name, and `model_base_path` is the path where the model is stored.
+> bazel-bin/tensorflow_serving/model_servers/tensorflow_model_server --port=9000 --model_name=example_model --model_base_path=/tmp/model
+
+## 9 Installing Serving_Apis Interface
+
+When writing client-side PY files, client-side calls must rely on tensorflow-serving-api, but this package can be installed by pip install under python2, but not under python3.
+
+How to do it? Download the package and put it under the path of Python3.
+
+Download the package, unzip it, and put the source code into the project.
+
+-  Download the `.whl` file from PyPI The download link is: https://pypi.python.org/pypi/tensorflow-serving-api/1.4.0
+
+- `unzip` to extract the package
+
+- Copy and paste it into your Python3 installation path.
+
+`(mine is under /usr/lib/python3.5/tensorflow_serving)`
+
+(The links to the following interfaces all require a vpn if you are in China)
+
+Currently the client program needs to call the `predict_pb2` and `prediction_service_pb2` interfaces in `tensorflow_serving.apis`, which are necessary for python to interact with tensorflow_serving.
+
+First the tensorflow_serving.apis interface creates a gRPC stub for us. The stub allows us to call methods on the remote server and is the necessary logic for remote connections, containing information such as the IP address and port of the connection.
+
+Then the function PredictRequest of `predict_pb2`, defined [here](https://github.com/tensorflow/serving/blob/master/tensorflow_serving/apis/predict.proto#L12), which is the request type of the Predict( ) API call, is used to create the call request and then `result = stub.Predict(request)` is to send this request and return its result.
+
+More detailed explanation can be found [here](https://sthalles.github.io/serving_tensorflow_models/)
+
+
+## 10 Calling the interface to make predictions
+
+Once the service is on, reopen a command line and run the client code using Python3 to produce the prediction results. `This is where you may encounter an error report with the following message.`
+> TypeError: _ new _() got an unexpected keyword argument 'serialized_options' 这个的原因是protoc的版本问题导致的，国内关于这个讨论的不多，国外的GitHub上讨论的却挺热闹，请见此[链接](https://github.com/tensorflow/models/issues/3995)
+
+The solution to this problem is, of course, to update the version.
+
+1. Grab the version you need to download the required version
+
+> curl -OL https://github.com/google/protobuf/releases/download/v3.4.0/protoc-3.4.0-linux-x86_64.zip
+
+2. Unzip
+
+> unzip protoc-3.4.0-linux-x86_64.zip -d protoc3
+
+3. Move protoc to /usr/local/bin/ to the specified path
+
+> sudo mv protoc3/bin/* /usr/local/bin/
+
+4. Check the version, it should be protobuf 3.4.0.
+
+> protoc --version
+
+# Appendix.py 
